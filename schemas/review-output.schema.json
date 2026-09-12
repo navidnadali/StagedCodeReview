@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings", "resolved", "still_open", "reraised", "summary"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "description": "NEW issues introduced by this change-set only. Never repeat an already-listed open finding here; use still_open for those.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "file", "line", "issue", "fix", "severity", "kind"],
+        "properties": {
+          "id": {
+            "type": ["string", "null"],
+            "description": "null for NEW findings. Set an existing open id ONLY if you are certain this is the same prior open issue (prefer still_open instead)."
+          },
+          "file": { "type": "string", "description": "Path relative to the repo, prefixed with the '### Repo:' relative path when there are multiple repos." },
+          "line": { "type": "integer", "description": "Line number; 0 if file-wide or cross-file." },
+          "issue": { "type": "string", "description": "Short, direct description of the problem." },
+          "fix": { "type": "string", "description": "Concrete suggested fix or remediation." },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "major", "minor"],
+            "description": "critical = breaks correctness/security; major = significant correctness or design problem; minor = quality, style, small improvement."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["intent_gap", "bug", "quality"],
+            "description": "intent_gap = diff does not implement the stated intent; bug = correctness/security defect in the diff itself; quality = maintainability, performance, or style issue."
+          }
+        }
+      }
+    },
+    "resolved": {
+      "type": "array", "items": { "type": "string" },
+      "description": "Ids from the Open ledger that ARE genuinely fixed in the current code."
+    },
+    "still_open": {
+      "type": "array", "items": { "type": "string" },
+      "description": "Ids from the Open ledger that are NOT yet fixed. Every open id must appear in exactly one of resolved or still_open."
+    },
+    "reraised": {
+      "type": "array",
+      "description": "Dismissed ids you are re-raising WITH concrete new evidence.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "evidence"],
+        "properties": { "id": { "type": "string" }, "evidence": { "type": "string" } }
+      }
+    },
+    "summary": { "type": ["string", "null"], "description": "One short paragraph on overall change quality (optional)." }
+  }
+}

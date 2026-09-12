@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "bash ~/.agents/scripts/staged-review/hooks/claude-code/capture-prompt.sh" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "ExitPlanMode", "hooks": [ { "type": "command", "command": "bash ~/.agents/scripts/staged-review/hooks/claude-code/capture-plan.sh" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "TodoWrite", "hooks": [ { "type": "command", "command": "bash ~/.agents/scripts/staged-review/hooks/claude-code/capture-plan.sh" } ] }
+    ]
+  }
+}
