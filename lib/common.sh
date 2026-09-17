@@ -243,27 +243,80 @@ sr_extract_dsh_intent() {   # uses $DSH_SESSION_JSONL
     ' 2>/dev/null
 }
 
-sr_claude_intent_dir() {   # -> state dir path or empty
-    local root="${HOME}/.claude/state/codex-review" sid="${1:-}" d
-    if [[ -n "$sid" && -d "${root}/${sid}" ]]; then printf '%s' "${root}/${sid}"; return 0; fi
+# Resolve the Claude state directory holding this session's captured intent.
+#
+# The root is SHARED BY EVERY SESSION ON THE MACHINE, across every project. Picking
+# the wrong directory briefs the reviewer with another project's purpose, and the
+# resulting review is indistinguishable from a real one: it reviews the right diff
+# against the wrong stated intent. So this never guesses unless told it may.
+#
+# Note the capture hooks name directories by Claude's session_id (a UUID) while
+# callers typically pass a human label via --session, which overrides it. Those key
+# spaces do not match, so a miss here is the NORMAL case for a labelled session --
+# which is exactly why the old fallback fired so often and so quietly.
+#
+# Precedence:
+#   1. --session <sid> is authoritative. If it does not resolve, emit NOTHING.
+#   2. No session named: guessing is opt-in via STAGED_REVIEW_INTENT_AUTO=1.
+#   3. Even when opted in, refuse when the choice is ambiguous.
+sr_claude_intent_dir() {   # -> state dir path, or empty
+    local root="${HOME}/.claude/state/codex-review" sid="${1:-}" d recent n
+
+    # (1) An explicit session is a statement of fact by the caller. Honour it or
+    #     return nothing. Falling through to a guess here is what allowed reviews
+    #     to be briefed with unrelated projects' requests.
+    if [[ -n "$sid" ]]; then
+        if [[ -d "${root}/${sid}" ]]; then
+            printf '%s' "${root}/${sid}"
+        else
+            sr_note "claude intent: --session '${sid}' has no state dir under ${root}; capturing NO intent (refusing to guess). Pass --intent-file to supply it."
+        fi
+        return 0
+    fi
+
+    # (2) No session named. Guessing is off by default.
+    if [[ "${STAGED_REVIEW_INTENT_AUTO:-0}" != "1" ]]; then
+        sr_note "claude intent: no --session given; capturing NO intent (set STAGED_REVIEW_INTENT_AUTO=1 to allow most-recent-dir guessing)."
+        return 0
+    fi
+
+    # (3) Opted in. Refuse when more than one session was active recently: on a
+    #     multi-lane host "most recent" is a coin toss, and the old code warned
+    #     only when the pick was STALE -- silent in exactly the case where it was
+    #     most likely to be wrong.
+    recent="$(find "$root" -mindepth 1 -maxdepth 1 -type d -newermt '-6 hours' 2>/dev/null)"
+    n="$(printf '%s' "$recent" | grep -c . || true)"
+    if (( n > 1 )); then
+        sr_note "claude intent: ${n} state dirs modified in the last 6h -- ambiguous; capturing NO intent. Pass --session or --intent-file."
+        return 0
+    fi
+
     d="$(find "$root" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | xargs -0 ls -td 2>/dev/null | head -1)"
     [[ -n "$d" ]] || return 0
-    if [[ -z "$(find "$d" -maxdepth 1 -newermt '-6 hours' 2>/dev/null | head -1)" ]]; then
-        sr_note "claude intent: using most-recent state dir $(basename "$d"), which is older than 6h — verify it matches this session or pass --session/--intent-file"
-    fi
+    sr_note "claude intent: GUESSED most-recent state dir $(basename "$d") -- verify it matches this session."
     printf '%s' "$d"
 }
 
 # sr_build_intent <harness> <session-id> <intent-addendum-file> <outfile>
 sr_build_intent() {
-    local harness="$1" sid="$2" addendum="$3" out="$4" tmp dir
+    local harness="$1" sid="$2" addendum="$3" out="$4" tmp dir src
     tmp="$(mktemp -t sr-intent.XXXXXX)"
+    src="none"
     case "$harness" in
-        dsh)    sr_extract_dsh_intent > "$tmp" ;;
+        dsh)    src="dsh session transcript"; sr_extract_dsh_intent > "$tmp" ;;
         claude) dir="$(sr_claude_intent_dir "$sid")"
-                [[ -n "$dir" ]] && build_intent_bundle "$dir" "" > "$tmp" ;;
+                if [[ -n "$dir" ]]; then
+                    src="claude state dir '$(basename "$dir")'"
+                    build_intent_bundle "$dir" "" > "$tmp"
+                fi ;;
         *)      : ;;
     esac
+    # Provenance, in the artefact the reviewer actually reads. Contamination is then
+    # visible in intent.md itself rather than needing an out-of-band check.
+    if [[ -s "$tmp" ]]; then
+        { printf 'Intent source: %s\n\n---\n\n' "$src"; cat "$tmp"; } > "${tmp}.prov"
+        mv "${tmp}.prov" "$tmp"
+    fi
     if [[ -n "$addendum" && -f "$addendum" ]]; then
         { printf '\n\n## Agent addendum\n\n'; cat "$addendum"; } >> "$tmp"
     fi

@@ -419,7 +419,7 @@ PROMPT="${RUN_DIR}/prompt.md"
     printf '\n# Stated intent\n\n'; cat "${RUN_DIR}/intent.md"
     printf '\n# Prior findings ledger\n\n'; cat "${RUN_DIR}/ledger.md"
     printf '\n# Diffs under review\n\n'; cat "${RUN_DIR}/diff.md"
-    printf '\n# Output discipline\n\nReturn one JSON object matching the enforced schema. Every id listed under "Open" above MUST appear in exactly one of "resolved" or "still_open" (verify each in the code first). "findings" is ONLY for NEW issues. A dismissed id may only appear in "reraised", with concrete new evidence. Use empty arrays when there is nothing.\n'
+    printf '\n# Output discipline\n\nReturn one JSON object matching the enforced schema. Every id listed under "Open" above MUST appear in exactly one of "resolved" or "still_open" (verify each in the code first). "findings" is ONLY for NEW issues. A dismissed id may only appear in "reraised", with concrete new evidence. Use empty arrays when there is nothing.\n\nIf you CANNOT review this change-set, set "refused": true with a "refusal_reason" and return no findings. Refuse when the stated intent describes a different change than the diff, when the diff is truncated or internally inconsistent, or when the bundle is otherwise unusable. Refusing is correct and costs nothing: it records the run without advancing the pass counter. Reviewing the wrong thing costs a round and leaves a ledger entry asserting work nobody did.\n'
 } > "$PROMPT"
 
 if (( DRY_RUN )); then
@@ -506,6 +506,31 @@ fi
 PREFIX=SOL
 VNOTES="$(jq -c .notes <<< "$VALIDATED")"
 OUT="$(jq -c .out <<< "$VALIDATED")"
+
+# A REFUSAL IS NOT A PASS.
+#
+# A reviewer handed an unusable bundle -- a stated intent describing a different
+# change, a truncated diff -- should decline rather than review the wrong thing.
+# That is a valid, parsable answer, and it must not advance the pass counter:
+# otherwise the exit code, the events file and .passes all read as success on a
+# review that examined nothing, and the ledger records work nobody did.
+#
+# Mirrors the "error" path above (unparsable output), which likewise records the
+# run without advancing .passes.
+if [[ "$(jq -r '.refused // false' <<< "$OUT")" == "true" ]]; then
+    REFUSAL_REASON="$(jq -r '.refusal_reason // "no reason given"' <<< "$OUT")"
+    jq --arg s "$STAGE" --argjson seq "$RUN_SEQ" --argjson pass "$PASS" \
+       --arg dir "runs/$(printf '%03d' "$RUN_SEQ")-${STAGE}" --arg now "$(sr_now)" \
+       --arg reason "$REFUSAL_REASON" '
+        .run_seq = $seq
+        | .runs += [{seq: $seq, stage: $s, pass: $pass, dir: $dir, ended: $now,
+                     result: "refused", refusal_reason: $reason}]
+        | .updated_at = $now' "$STATE" | sr_save_state
+    printf 'STAGED-REVIEW: stage=%s pass=%s status=refused\nREASON: %s\nNEXT: the reviewer declined to review this bundle; the pass counter was NOT advanced. Fix the cause (check %s/intent.md first) and re-run.\n' \
+        "$STAGE" "$PASS" "$REFUSAL_REASON" "$RUN_DIR" >&2
+    exit 2
+fi
+
 MERGED="$(jq -f "${SCRIPT_DIR}/lib/merge.jq" \
     --argjson out "$OUT" --argjson vnotes "$VNOTES" \
     --arg stage "$STAGE" --argjson pass "$PASS" --arg now "$(sr_now)" --arg prefix "$PREFIX" \

@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 FAIL=0
 
 for script in "$ROOT/staged-review.sh" "$ROOT/lib/common.sh" \
-    "$ROOT/tests/test_diff_pack.sh" \
+    "$ROOT/tests/test_diff_pack.sh" "$ROOT/tests/test_intent_isolation.sh" \
     "$ROOT/tests/test-lock.sh" "$ROOT/tests/test-blocking-severity.sh" \
     "$ROOT/test.sh"; do
     if bash -n "$script"; then
@@ -16,6 +16,12 @@ for script in "$ROOT/staged-review.sh" "$ROOT/lib/common.sh" \
 done
 
 if bash "$ROOT/tests/test_diff_pack.sh"; then
+    :
+else
+    FAIL=1
+fi
+
+if bash "$ROOT/tests/test_intent_isolation.sh"; then
     :
 else
     FAIL=1

@@ -1,6 +1,9 @@
 # Normalize + validate raw reviewer output.
 # Input: whatever JSON the reviewer produced.
-# Output: {ok: bool, out: {findings, resolved, still_open, reraised, summary}, notes: [string]}
+# Output: {ok: bool, out: {findings, resolved, still_open, reraised, summary, refused, refusal_reason}, notes: [string]}
+# A refusal ("I cannot review this bundle") is a valid answer and NOT a pass; the
+# driver records it without advancing the pass counter. A refusal carries no
+# findings -- half a verdict on an unusable bundle is worse than none.
 def normsev:
   if type == "string" then (ascii_downcase | if IN("critical","major","minor") then . else null end)
   else null end;
@@ -52,15 +55,25 @@ else
   | (if ($o.summary | type) == "string" then $o.summary else null end) as $summary
   | (($goodf | length) == 0 and ($still | length) == 0 and ($reraised | length) == 0
      and ($summary | summary_has_unrepresented_issue)) as $summary_conflict
-  | { ok: ($ndropped == 0 and ($summary_conflict | not)),
+  | (($o.refused // false) == true) as $refused
+  | (if ($o.refusal_reason | type) == "string" and (($o.refusal_reason | length) > 0)
+     then $o.refusal_reason else null end) as $refusal_reason
+  | ($refused and ($refusal_reason == null)) as $refusal_unexplained
+  | ($refused and (($goodf | length) > 0 or ($still | length) > 0 or ($reraised | length) > 0)) as $refusal_with_findings
+  | { ok: ($ndropped == 0 and ($summary_conflict | not)
+           and ($refusal_unexplained | not) and ($refusal_with_findings | not)),
       out: {
         findings: $goodf,
         resolved: [ ($o.resolved // [])[]? | select(type == "string") ],
         still_open: $still,
         reraised: $reraised,
-        summary: $summary
+        summary: $summary,
+        refused: $refused,
+        refusal_reason: $refusal_reason
       },
       notes: ((if $ndropped > 0 then ["reviewer output contained \($ndropped) malformed finding(s); refusing to drop them"] else [] end)
-              + (if $summary_conflict then ["reviewer summary says issues remain but findings/still_open/reraised are empty"] else [] end))
+              + (if $summary_conflict then ["reviewer summary says issues remain but findings/still_open/reraised are empty"] else [] end)
+              + (if $refusal_unexplained then ["reviewer refused without a refusal_reason"] else [] end)
+              + (if $refusal_with_findings then ["reviewer refused but also reported findings; a refusal is not a partial review"] else [] end))
     }
 end
