@@ -1,7 +1,7 @@
 # StagedCodeReview
 
 Iterative, ledger-backed code review for AI coding agents. Each invocation runs
-one review pass by GPT-5.6 Sol (through the OpenAI `codex` CLI, read-only
+one review pass by GPT-6 Sol (through the OpenAI `codex` CLI, read-only
 sandbox) over everything changed since a recorded baseline, merges the result
 into a per-session findings ledger, and tells the agent exactly what to do next.
 The loop stops at the first pass with no open finding at the blocking severity.

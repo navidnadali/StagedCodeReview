@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # staged-review.sh — iterative single-model code-review driver.
-#   Reviewer: GPT-5.6 Sol @ xhigh (codex exec, ChatGPT sub, read-only sandbox).
+#   Reviewer: GPT-6 Sol @ high (codex exec, ChatGPT sub, read-only sandbox).
 #   Loop: one Sol pass per invocation until no findings remain at the selected
 #   blocking severity. The compatibility default is major (critical+major);
 #   repositories may select critical when their binding review rule does.

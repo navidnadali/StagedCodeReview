@@ -1,6 +1,6 @@
 ---
 name: codex-review
-description: Iterative code review of the current change-set via the staged-review driver - a GPT-5.6 Sol (codex, xhigh) pass looped until no NEW critical or major findings remain. Minor findings do not gate the loop - fix them after the clean verdict, then commit and push.
+description: Iterative code review of the current change-set via the staged-review driver - a GPT-6 Sol (codex, high) pass looped until no NEW critical or major findings remain. Minor findings do not gate the loop - fix them after the clean verdict, then commit and push.
 ---
 
 # Sol review loop (Claude Code)

@@ -1,6 +1,6 @@
 ---
 name: staged-review
-description: Iterative GPT-5.6 Sol review of the current change-set, using the repository's binding severity threshold and preserving a review ledger across passes. Run at the end of coding tasks or invoke on demand (Codex: $staged-review).
+description: Iterative GPT-6 Sol review of the current change-set, using the repository's binding severity threshold and preserving a review ledger across passes. Run at the end of coding tasks or invoke on demand (Codex: $staged-review).
 ---
 
 # Sol review loop (Codex and dsh)
