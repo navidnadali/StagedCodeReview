@@ -41,6 +41,11 @@ bounded at 30 seconds. A report is also rejected and retried when its prose
 summary says issues remain but its structured finding arrays are empty, or when
 any finding is malformed; neither case may advance as a clean pass. Never work
 around a review failure by editing review state.
+Every completed review needs a substantive summary, including a review with no
+findings. Null, blank or placeholder receipts are refused. Finding references
+must belong to the supplied session ledger; historical IDs in intent text are
+not ledger entries. Invalid receipts are retried once with their validation
+reasons and never advance the pass counter or findings ledger.
 
 ## Protocol
 

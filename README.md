@@ -15,6 +15,17 @@ Works as a skill for **Claude Code**, **Codex** and **dsh**.
    binaries excluded, size-capped), the captured intent and the prior ledger.
 3. `codex exec` reviews it with a JSON output schema; malformed or
    self-contradicting reports are rejected and retried once.
+   A review requires a substantive summary even with no findings. Null, blank,
+   punctuation-only, one-word status and common placeholder summaries are
+   rejected. This is a
+   completeness check, not an automated assessment of the prose's correctness
+   or proof that a review occurred. The recognizer covers the tested common
+   empty-receipt forms (for example, "Not reviewed yet" or "No evidence exists");
+   it is not a general language classifier. Re-raises require a descriptive
+   evidence phrase under the same structural check.
+   References must belong to this session's ledger: open IDs for resolutions or
+   carried findings, dismissed IDs for re-raises with new evidence. Historical
+   IDs quoted in an intent file do not become ledger entries.
 4. Findings get stable ids (`SOL-1`, `SOL-2`, ...) and a status: open,
    resolved, dismissed. The reviewer must account for every open id each pass.
 5. Exit code: `0` all clean or nothing to review, `1` findings to fix, `2` error.
@@ -38,6 +49,12 @@ cd StagedCodeReview
 The driver lands in `~/.agents/scripts/staged-review`; skills go where each
 harness reads them. Re-run `install.sh` to update. `bash test.sh` runs the
 regression suite.
+
+Invalid model receipts and their validation reasons remain in the run directory
+(`validation.attemptN.json`). The retry receives those reasons. If both attempts
+fail validation, the driver records an error run without changing pass counters,
+the findings ledger, its ID sequence or a clean marker. An explicit explained
+refusal also records a non-pass. Neither result repairs or rewrites old receipts.
 
 ### Claude Code
 
