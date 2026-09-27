@@ -460,14 +460,26 @@ sr_invoke_sol() {        # $1 = attempt number
 }
 
 sr_get_validated() {     # $1 = attempt -> prints validated JSON, rc 0 when ok
-    local n="$1" raw="" v
+    local n="$1" raw="" v error=""
     [[ -s "${RUN_DIR}/sol-output.attempt${n}.json" ]] && raw="$(cat "${RUN_DIR}/sol-output.attempt${n}.json")"
     if [[ -z "$raw" ]] || ! jq -e . >/dev/null 2>&1 <<< "$raw"; then
         raw="$(sr_extract_last_json_fence "${RUN_DIR}/sol-output.attempt${n}.json" 2>/dev/null)"
     fi
-    [[ -z "$raw" ]] && return 1
-    jq -e . >/dev/null 2>&1 <<< "$raw" || return 1
-    v="$(jq -f "${SCRIPT_DIR}/lib/validate.jq" <<< "$raw")" || return 1
+    if [[ -z "$raw" ]]; then
+        error="reviewer output is empty or contains no JSON object"
+    elif ! jq -e . >/dev/null 2>&1 <<< "$raw"; then
+        error="reviewer output is not parsable JSON"
+    fi
+    if [[ -n "$error" ]]; then
+        jq -n --arg error "$error" '{ok:false, out:null, notes:[$error]}' \
+            > "${RUN_DIR}/validation.attempt${n}.json"
+        return 1
+    fi
+    # Validate references against THIS session's ledger before merge can filter
+    # anything. Preserve invalid receipts and their reasons for retry/audit.
+    v="$(jq --argjson ledger "$(jq -c '.findings' "$STATE")" \
+        -f "${SCRIPT_DIR}/lib/validate.jq" <<< "$raw")" || return 1
+    printf '%s\n' "$v" > "${RUN_DIR}/validation.attempt${n}.json"
     [[ "$(jq -r .ok <<< "$v")" == "true" ]] || return 1
     printf '%s' "$v"
 }
@@ -478,11 +490,21 @@ for attempt in 1 2; do
     if (( attempt == 2 )); then
         sr_note "attempt 1 produced no valid output - retrying with a stricter notice"
         { printf '\n'; cat "${SCRIPT_DIR}/templates/retry-notice.md"; } >> "$PROMPT"
+        if [[ -f "${RUN_DIR}/validation.attempt1.json" ]]; then
+            jq -r '.notes[] | "- Validation refusal: " + .' \
+                "${RUN_DIR}/validation.attempt1.json" >> "$PROMPT"
+        fi
     fi
     sr_invoke_sol "$attempt"
     RC=$?
     ATTEMPT_RESULTS+="${attempt}=${RC} "
-    if (( RC == 0 )) && VALIDATED="$(sr_get_validated "$attempt")"; then break; fi
+    if (( RC != 0 )); then
+        jq -n --arg reason "reviewer process exited rc=${RC}; no successful review receipt" \
+            '{ok:false, out:null, notes:[$reason]}' \
+            > "${RUN_DIR}/validation.attempt${attempt}.json"
+    elif VALIDATED="$(sr_get_validated "$attempt")"; then
+        break
+    fi
     VALIDATED=""
     if (( RC == 124 )); then
         sr_note "attempt ${attempt}: reviewer exceeded the ${STAGED_REVIEW_ATTEMPT_TIMEOUT}s hard limit"

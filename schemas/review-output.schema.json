@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["findings", "resolved", "still_open", "reraised", "summary"],
+  "required": ["findings", "resolved", "still_open", "reraised", "summary", "refused", "refusal_reason"],
   "properties": {
     "findings": {
       "type": "array",
@@ -49,6 +49,8 @@
         "properties": { "id": { "type": "string" }, "evidence": { "type": "string" } }
       }
     },
-    "summary": { "type": ["string", "null"], "description": "One short paragraph on overall change quality (optional)." }
+    "summary": { "type": ["string", "null"], "description": "Required substantive paragraph describing the review and overall change quality, even when there are no findings. Null is only permitted for an explicit refusal with a concrete refusal_reason; blank or placeholder text is not a review." },
+    "refused": { "type": "boolean", "description": "True only when the bundle cannot be reviewed. A refusal carries no findings or ledger changes and does not count as a pass." },
+    "refusal_reason": { "type": ["string", "null"], "description": "Concrete explanation when refused is true; null for a completed review." }
   }
 }

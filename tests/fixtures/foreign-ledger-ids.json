@@ -1,0 +1,11 @@
+{
+  "findings": [],
+  "resolved": [
+    "SOL-39"
+  ],
+  "still_open": [
+    "SOL-41"
+  ],
+  "reraised": [],
+  "summary": "Reviewed all changed paths against the recorded baseline. SOL-41 remains open: the table parser accepts a malformed alignment row. The command control could not run because the read-only sandbox denies mktemp."
+}
