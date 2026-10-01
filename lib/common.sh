@@ -13,7 +13,7 @@ load_env
 # shellcheck source=/dev/null
 [[ -f "${SR_HOME}/config.env" ]] && source "${SR_HOME}/config.env"
 
-: "${STAGED_REVIEW_SOL_MODEL:=gpt-6-sol}"
+: "${STAGED_REVIEW_SOL_MODEL:=gpt-6.1-sol}"
 : "${STAGED_REVIEW_SOL_REASONING:=high}"
 : "${STAGED_REVIEW_CODEX_BIN:=codex}"
 : "${STAGED_REVIEW_BLOCKING_SEVERITY:=major}" # major = critical+major; critical = critical only

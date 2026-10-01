@@ -19,7 +19,7 @@ CODEX_REVIEW_HOME="${HOME}/.claude"
 CODEX_REVIEW_STATE_ROOT="${CODEX_REVIEW_HOME}/state/codex-review"
 CODEX_REVIEW_LOG="${CODEX_REVIEW_HOME}/state/codex-review/debug.log"
 
-: "${CODEX_REVIEW_MODEL:=gpt-6-sol}"
+: "${CODEX_REVIEW_MODEL:=gpt-6.1-sol}"
 : "${CODEX_REVIEW_REASONING:=high}"
 : "${CODEX_REVIEW_MAX_ITER:=5}"
 
