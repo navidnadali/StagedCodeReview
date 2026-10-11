@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # staged-review.sh — iterative single-model code-review driver.
-#   Reviewer: GPT-6.1 Sol @ high (codex exec, ChatGPT sub, read-only sandbox).
+#   Reviewer: GPT-6.1 Sol @ high (codex exec, ChatGPT sub, read-only sandbox) by default;
+#   STAGED_REVIEW_REVIEWER=claude runs an Anthropic model via `claude -p` (default claude-opus-5-5 @ xhigh)
+#   with the same bundle, schema and a read-only tool allow-list.
 #   Loop: one Sol pass per invocation until no findings remain at the selected
 #   blocking severity. The compatibility default is major (critical+major);
 #   repositories may select critical when their binding review rule does.
@@ -31,6 +33,8 @@ Usage: staged-review.sh [options]
   --status                    print state + findings ledger and exit
   --reset                     wipe this session's review state (next call re-baselines)
   --dry-run                   build the prompt bundle but call no model
+Environment: STAGED_REVIEW_REVIEWER=codex|claude (default codex). codex: STAGED_REVIEW_SOL_MODEL/_REASONING.
+  claude: STAGED_REVIEW_CLAUDE_MODEL/_EFFORT/_MAX_TURNS/_ALLOWED_TOOLS/_DISALLOWED_TOOLS (see lib/common.sh).
 Exit codes: 0 clean/all-clean/skipped, 1 findings to fix, 2 error.
 USAGE
 }
@@ -439,8 +443,45 @@ sr_run_bounded() {       # args are passed to run-with-timeout.py
     return "$rc"
 }
 
+sr_invoke_claude() {     # $1 = attempt number — Anthropic reviewer via `claude -p`, same prompt/schema/receipt file
+    local n="$1" rc=0 schema
+    schema="$(cat "${SCRIPT_DIR}/schemas/review-output.schema.json")"
+    sr_run_bounded \
+        --timeout "$STAGED_REVIEW_ATTEMPT_TIMEOUT" \
+        --progress-interval "$STAGED_REVIEW_PROGRESS_INTERVAL" \
+        --grace "$STAGED_REVIEW_TERMINATE_GRACE" \
+        --label "$STAGE attempt $n" \
+        --cwd "$WCWD" \
+        --stdin "$PROMPT" \
+        --stdout "${RUN_DIR}/claude-output.attempt${n}.json" \
+        --stderr "${RUN_DIR}/stderr.attempt${n}.log" \
+        -- "$STAGED_REVIEW_CLAUDE_BIN" -p \
+        --model "$STAGED_REVIEW_CLAUDE_MODEL" \
+        --effort "$STAGED_REVIEW_CLAUDE_EFFORT" \
+        --output-format json \
+        --json-schema "$schema" \
+        --allowedTools "$STAGED_REVIEW_CLAUDE_ALLOWED_TOOLS" \
+        --disallowedTools "$STAGED_REVIEW_CLAUDE_DISALLOWED_TOOLS" \
+        --max-turns "$STAGED_REVIEW_CLAUDE_MAX_TURNS" || rc=$?
+    # Lift the structured object out of the CLI envelope into the receipt file the loop already reads.
+    if [[ -s "${RUN_DIR}/claude-output.attempt${n}.json" ]]; then
+        jq -c 'if type == "object" and (.structured_output? // null) != null then .structured_output
+               elif type == "object" and ((.result? // "") | type) == "string" and (.result // "") != "" then (.result | try fromjson catch empty)
+               else empty end' "${RUN_DIR}/claude-output.attempt${n}.json" > "${RUN_DIR}/sol-output.attempt${n}.json" 2>/dev/null || :
+        if (( rc == 0 )) && [[ ! -s "${RUN_DIR}/sol-output.attempt${n}.json" ]]; then
+            sr_note "attempt ${n}: claude returned no structured_output ($(jq -r '.subtype // .type // "?"' "${RUN_DIR}/claude-output.attempt${n}.json" 2>/dev/null))"
+        fi
+    fi
+    return "$rc"
+}
+
 sr_invoke_sol() {        # $1 = attempt number
     local n="$1"
+    case "$STAGED_REVIEW_REVIEWER" in
+        claude) sr_invoke_claude "$n"; return $? ;;
+        codex|"") ;;
+        *) sr_note "unknown STAGED_REVIEW_REVIEWER=${STAGED_REVIEW_REVIEWER} (codex|claude)"; return 2 ;;
+    esac
     sr_run_bounded \
         --timeout "$STAGED_REVIEW_ATTEMPT_TIMEOUT" \
         --progress-interval "$STAGED_REVIEW_PROGRESS_INTERVAL" \

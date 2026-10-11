@@ -16,6 +16,15 @@ load_env
 : "${STAGED_REVIEW_SOL_MODEL:=gpt-6.1-sol}"
 : "${STAGED_REVIEW_SOL_REASONING:=high}"
 : "${STAGED_REVIEW_CODEX_BIN:=codex}"
+# Reviewer backend. "codex" (default) keeps GPT via `codex exec`; "claude" runs an Anthropic model via `claude -p`
+# with the same prompt bundle, the same output schema and a read-only tool allow-list. Nothing below changes the default.
+: "${STAGED_REVIEW_REVIEWER:=codex}"
+: "${STAGED_REVIEW_CLAUDE_BIN:=claude}"
+: "${STAGED_REVIEW_CLAUDE_MODEL:=claude-opus-5-5}"
+: "${STAGED_REVIEW_CLAUDE_EFFORT:=xhigh}"          # low|medium|high|xhigh|max
+: "${STAGED_REVIEW_CLAUDE_MAX_TURNS:=400}"
+: "${STAGED_REVIEW_CLAUDE_ALLOWED_TOOLS:=Read,Grep,Glob,LS,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git ls-files *),Bash(git status *),Bash(git grep *),Bash(git rev-parse *),Bash(git blame *),Bash(rg *),Bash(grep *),Bash(cat *),Bash(sed -n *),Bash(head *),Bash(tail *),Bash(wc *),Bash(ls *),Bash(find *),Bash(jq *),Bash(python3 -I -c *)}"
+: "${STAGED_REVIEW_CLAUDE_DISALLOWED_TOOLS:=Edit,Write,MultiEdit,NotebookEdit,Agent,Task,WebFetch,WebSearch,Bash(git add *),Bash(git commit *),Bash(git push *),Bash(git checkout *),Bash(git switch *),Bash(git stash *),Bash(git reset *),Bash(git restore *),Bash(git rebase *),Bash(git merge *),Bash(git worktree *),Bash(rm *),Bash(mv *),Bash(cp *),Bash(tee *),Bash(sed -i *),Bash(chmod *),Bash(touch *)}"
 : "${STAGED_REVIEW_BLOCKING_SEVERITY:=major}" # major = critical+major; critical = critical only
 : "${STAGED_REVIEW_PYTHON_BIN:=python3}"
 : "${STAGED_REVIEW_TIMEOUT_RUNNER:=${SR_HOME}/run-with-timeout.py}"

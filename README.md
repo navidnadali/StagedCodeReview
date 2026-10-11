@@ -135,3 +135,14 @@ NEXT: fix findings blocking at the major threshold ..., then re-run this exact c
 The diff bundle and captured intent are sent to OpenAI through `codex`. The
 reviewer runs with a read-only sandbox; repositories under a temp directory are
 refused because that sandbox can write there.
+
+## Reviewer backends
+
+The default reviewer is GPT-6.1 Sol through `codex exec` (`STAGED_REVIEW_SOL_MODEL`, `STAGED_REVIEW_SOL_REASONING`).
+Set `STAGED_REVIEW_REVIEWER=claude` to run an Anthropic model through `claude -p` instead — same prompt bundle,
+same output schema (enforced with `--json-schema`), same receipt file and ledger — with a read-only tool allow-list
+in place of codex's sandbox. Knobs: `STAGED_REVIEW_CLAUDE_MODEL` (default `claude-opus-5-5`),
+`STAGED_REVIEW_CLAUDE_EFFORT` (default `xhigh`), `STAGED_REVIEW_CLAUDE_MAX_TURNS` (default 400),
+`STAGED_REVIEW_CLAUDE_ALLOWED_TOOLS` / `_DISALLOWED_TOOLS`. The default backend and models are unchanged.
+
+    STAGED_REVIEW_REVIEWER=claude bash ~/.agents/scripts/staged-review/staged-review.sh --harness=claude
