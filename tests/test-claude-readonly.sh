@@ -4,11 +4,19 @@
 # before any model is called.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SRC_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STATE_PARENT="$(dirname "${STAGED_REVIEW_STATE_ROOT:-${HOME}/.agents/state/staged-review}")"
 mkdir -p "$STATE_PARENT"
 TEST_ROOT="$(mktemp -d "${STATE_PARENT}/staged-review-claude-test.XXXXXX")"
 trap 'rm -rf "$TEST_ROOT"' EXIT
+# Run a copy of the driver WITHOUT the installation's config.env: an installed
+# config.env may pin the reviewer backend (STAGED_REVIEW_REVIEWER=codex), and it
+# is sourced after the environment, so this test could not select claude.
+ROOT="${TEST_ROOT}/driver"
+mkdir -p "$ROOT"
+for item in staged-review.sh run-with-timeout.py lib schemas templates; do
+    cp -R "${SRC_ROOT}/${item}" "${ROOT}/${item}"
+done
 REPO="${TEST_ROOT}/repo"
 FAKE="${TEST_ROOT}/fake-claude.sh"
 CALLS="${TEST_ROOT}/calls.log"
