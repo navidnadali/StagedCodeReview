@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # staged-review.sh — iterative single-model code-review driver.
-#   Reviewer: GPT-6.1 Sol @ high (codex exec, ChatGPT sub, read-only sandbox).
+#   Reviewer: GPT-6.1 Sol @ high (codex exec, ChatGPT sub, read-only sandbox) by default;
+#   STAGED_REVIEW_REVIEWER=claude runs an Anthropic model via `claude -p` (default claude-opus-5-5 @ xhigh)
+#   with the same bundle, schema and a read-only tool allow-list.
+#   A codex review thread is PERSISTED like any session (so usage trackers that read
+#   ~/.codex see its tokens) and archived as soon as the attempt ends, so it never
+#   clutters the thread list. STAGED_REVIEW_ARCHIVE_THREADS=0 leaves it unarchived.
 #   Loop: one Sol pass per invocation until no findings remain at the selected
 #   blocking severity. The compatibility default is major (critical+major);
 #   repositories may select critical when their binding review rule does.
@@ -31,6 +36,9 @@ Usage: staged-review.sh [options]
   --status                    print state + findings ledger and exit
   --reset                     wipe this session's review state (next call re-baselines)
   --dry-run                   build the prompt bundle but call no model
+Environment: STAGED_REVIEW_REVIEWER=codex|claude (default codex). codex: STAGED_REVIEW_SOL_MODEL/_REASONING,
+  STAGED_REVIEW_ARCHIVE_THREADS=1|0, STAGED_REVIEW_ARCHIVE_TIMEOUT. claude: STAGED_REVIEW_CLAUDE_MODEL/_EFFORT/
+  _MAX_TURNS/_TOOLS (read-only built-ins only) (see lib/common.sh).
 Exit codes: 0 clean/all-clean/skipped, 1 findings to fix, 2 error.
 USAGE
 }
@@ -192,10 +200,13 @@ if (( ${#ALL_REPOS[@]} == 0 )); then
     exit 0
 fi
 # Confinement precondition: repos must not live in a reviewer-writable area.
+# Repo paths are canonical, so TMPDIR is compared in BOTH spellings: macOS sets
+# it to /var/folders/... while the repo resolves through the /private symlink.
 TMPD="${TMPDIR:-/nonexistent}"
+TMPD_REAL="$(cd "$TMPD" 2>/dev/null && pwd -P)" || TMPD_REAL="/nonexistent"
 for r in "${ALL_REPOS[@]}"; do
     case "$r" in
-        /tmp/*|/private/tmp/*|"${TMPD%/}"/*)
+        /tmp/*|/private/tmp/*|"${TMPD%/}"/*|"${TMPD_REAL%/}"/*)
             printf 'STAGED-REVIEW: stage=none pass=0 status=error\nNEXT: repo %s lives under a temp dir the reviewer sandbox can write to - move it or review it manually.\n' "$r" >&2
             exit 2 ;;
     esac
@@ -439,8 +450,126 @@ sr_run_bounded() {       # args are passed to run-with-timeout.py
     return "$rc"
 }
 
+# The claude reviewer can neither write nor run anything: --tools is the
+# complete set of built-in tools the session has (an allow-list only
+# auto-approves, and a pattern like Bash(rg *) still runs `rg --pre <cmd>`);
+# --strict-mcp-config without --mcp-config loads no MCP server; and no hook
+# runs — `-p` would otherwise execute a reviewed repository's own
+# .claude/settings.json hooks with the user's permissions. --restricted skips
+# user, project and local settings files (hooks, plugins, permission rules)
+# and confines the file tools to the working directory; disableAllHooks in
+# --settings covers what is left (verified on claude 2.1.319: a planted
+# SessionStart/UserPromptSubmit hook runs without these flags, not with them).
+sr_claude_tools_read_only() {
+    local t
+    local -a tools
+    IFS=',' read -r -a tools <<< "$STAGED_REVIEW_CLAUDE_TOOLS"
+    (( ${#tools[@]} > 0 )) || return 0   # "" = no tools at all: read-only too
+    for t in "${tools[@]}"; do
+        case "${t//[[:space:]]/}" in
+            Read|Grep|Glob) ;;
+            *) return 1 ;;
+        esac
+    done
+}
+
+if [[ "$STAGED_REVIEW_REVIEWER" == claude ]] && ! sr_claude_tools_read_only; then
+    printf 'STAGED-REVIEW: stage=%s pass=%s status=error\nNEXT: STAGED_REVIEW_CLAUDE_TOOLS=%s is not read-only (allowed: Read, Grep, Glob) - no reviewer was called; fix the setting and re-run.\n' \
+        "$STAGE" "$PASS" "$STAGED_REVIEW_CLAUDE_TOOLS" >&2
+    exit 2
+fi
+
+sr_invoke_claude() {     # $1 = attempt number — Anthropic reviewer via `claude -p`, same prompt/schema/receipt file
+    local n="$1" rc=0 schema r
+    local -a add_dirs=()
+    # --restricted confines the file tools to the working directory, but the
+    # review covers every discovered repository in full (a launch from
+    # repo/subdir reviews all of repo): grant each canonical repo root
+    for r in "${ALL_REPOS[@]}"; do add_dirs+=(--add-dir "$r"); done
+    if ! sr_claude_tools_read_only; then
+        sr_note "STAGED_REVIEW_CLAUDE_TOOLS=${STAGED_REVIEW_CLAUDE_TOOLS} is not read-only (allowed: Read, Grep, Glob)"
+        return 2
+    fi
+    schema="$(cat "${SCRIPT_DIR}/schemas/review-output.schema.json")"
+    sr_run_bounded \
+        --timeout "$STAGED_REVIEW_ATTEMPT_TIMEOUT" \
+        --progress-interval "$STAGED_REVIEW_PROGRESS_INTERVAL" \
+        --grace "$STAGED_REVIEW_TERMINATE_GRACE" \
+        --label "$STAGE attempt $n" \
+        --cwd "$WCWD" \
+        --stdin "$PROMPT" \
+        --stdout "${RUN_DIR}/claude-output.attempt${n}.json" \
+        --stderr "${RUN_DIR}/stderr.attempt${n}.log" \
+        -- "$STAGED_REVIEW_CLAUDE_BIN" -p \
+        --model "$STAGED_REVIEW_CLAUDE_MODEL" \
+        --effort "$STAGED_REVIEW_CLAUDE_EFFORT" \
+        --output-format json \
+        --json-schema "$schema" \
+        --restricted \
+        ${add_dirs[@]+"${add_dirs[@]}"} \
+        --settings '{"disableAllHooks":true}' \
+        --tools "$STAGED_REVIEW_CLAUDE_TOOLS" \
+        --strict-mcp-config \
+        --permission-prompts none \
+        --allowedTools "$STAGED_REVIEW_CLAUDE_ALLOWED_TOOLS" \
+        --disallowedTools "$STAGED_REVIEW_CLAUDE_DISALLOWED_TOOLS" \
+        --max-turns "$STAGED_REVIEW_CLAUDE_MAX_TURNS" || rc=$?
+    # Lift the structured object out of the CLI envelope into the receipt file the loop already reads.
+    if [[ -s "${RUN_DIR}/claude-output.attempt${n}.json" ]]; then
+        jq -c 'if type == "object" and (.structured_output? // null) != null then .structured_output
+               elif type == "object" and ((.result? // "") | type) == "string" and (.result // "") != "" then (.result | try fromjson catch empty)
+               else empty end' "${RUN_DIR}/claude-output.attempt${n}.json" > "${RUN_DIR}/sol-output.attempt${n}.json" 2>/dev/null || :
+        if (( rc == 0 )) && [[ ! -s "${RUN_DIR}/sol-output.attempt${n}.json" ]]; then
+            sr_note "attempt ${n}: claude returned no structured_output ($(jq -r '.subtype // .type // "?"' "${RUN_DIR}/claude-output.attempt${n}.json" 2>/dev/null))"
+        fi
+    fi
+    return "$rc"
+}
+
+# A review thread is a normal, persisted Codex session: `--ephemeral` would keep
+# its rollout off disk, and every token the review spent would be invisible to
+# anything that accounts usage from ~/.codex (a review loop is a large share of
+# it). Once the attempt has ended — whatever its outcome — the thread is
+# archived, which moves the rollout to ~/.codex/archived_sessions and drops it
+# from the thread list. Archiving is housekeeping: a failure (an older CLI
+# without `codex archive`, a busy state database) is noted and never changes
+# the review's result.
+sr_archive_review_thread() {   # $1 = attempt number
+    local n="$1" sid timeout="$STAGED_REVIEW_ARCHIVE_TIMEOUT"
+    [[ "$STAGED_REVIEW_ARCHIVE_THREADS" == 1 ]] || return 0
+    sid="$(sed -n 's/^session id: \([0-9A-Fa-f-]\{36\}\)[[:space:]]*$/\1/p' \
+        "${RUN_DIR}/stderr.attempt${n}.log" 2>/dev/null | head -n 1)"
+    [[ -n "$sid" ]] || return 0
+    printf '%s\n' "$sid" > "${RUN_DIR}/codex-session.attempt${n}"
+    # housekeeping must stay bounded: a whole number of seconds, 1..3600
+    if ! [[ "$timeout" =~ ^[0-9]+$ ]] || (( 10#$timeout < 1 || 10#$timeout > 3600 )); then
+        sr_note "STAGED_REVIEW_ARCHIVE_TIMEOUT=${timeout} is not 1..3600 seconds; using 60"
+        timeout=60
+    fi
+    # through sr_run_bounded, so a signal to the driver terminates the archive
+    # like a review attempt instead of waiting it out while holding the lock
+    if ! sr_run_bounded \
+        --timeout "$((10#$timeout))" \
+        --progress-interval "$STAGED_REVIEW_PROGRESS_INTERVAL" \
+        --grace "$STAGED_REVIEW_TERMINATE_GRACE" \
+        --label "archive $sid" \
+        --cwd "$WCWD" \
+        --stdin /dev/null \
+        --stdout "${RUN_DIR}/archive.attempt${n}.out" \
+        --stderr "${RUN_DIR}/archive.attempt${n}.err" \
+        -- "$STAGED_REVIEW_CODEX_BIN" archive "$sid"; then
+        sr_note "attempt ${n}: review thread ${sid} was kept but not archived (see archive.attempt${n}.err)"
+    fi
+    return 0
+}
+
 sr_invoke_sol() {        # $1 = attempt number
-    local n="$1"
+    local n="$1" rc=0
+    case "$STAGED_REVIEW_REVIEWER" in
+        claude) sr_invoke_claude "$n"; return $? ;;
+        codex|"") ;;
+        *) sr_note "unknown STAGED_REVIEW_REVIEWER=${STAGED_REVIEW_REVIEWER} (codex|claude)"; return 2 ;;
+    esac
     sr_run_bounded \
         --timeout "$STAGED_REVIEW_ATTEMPT_TIMEOUT" \
         --progress-interval "$STAGED_REVIEW_PROGRESS_INTERVAL" \
@@ -450,13 +579,15 @@ sr_invoke_sol() {        # $1 = attempt number
         --stdin "$PROMPT" \
         --stdout "${RUN_DIR}/codex-events.attempt${n}.log" \
         --stderr "${RUN_DIR}/stderr.attempt${n}.log" \
-        -- "$STAGED_REVIEW_CODEX_BIN" exec --skip-git-repo-check --ephemeral -C "$WCWD" \
+        -- "$STAGED_REVIEW_CODEX_BIN" exec --skip-git-repo-check -C "$WCWD" \
         --model "$STAGED_REVIEW_SOL_MODEL" \
         -c "model_reasoning_effort=\"${STAGED_REVIEW_SOL_REASONING}\"" \
         --sandbox read-only \
         --output-schema "${SCRIPT_DIR}/schemas/review-output.schema.json" \
         --output-last-message "${RUN_DIR}/sol-output.attempt${n}.json" \
-        -
+        - || rc=$?
+    sr_archive_review_thread "$n"
+    return "$rc"
 }
 
 sr_get_validated() {     # $1 = attempt -> prints validated JSON, rc 0 when ok

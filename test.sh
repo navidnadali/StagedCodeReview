@@ -7,7 +7,7 @@ FAIL=0
 for script in "$ROOT/staged-review.sh" "$ROOT/lib/common.sh" \
     "$ROOT/tests/test_diff_pack.sh" "$ROOT/tests/test_intent_isolation.sh" \
     "$ROOT/tests/test-lock.sh" "$ROOT/tests/test-blocking-severity.sh" \
-    "$ROOT/test.sh"; do
+    "$ROOT/tests/test-archive-thread.sh" "$ROOT/tests/test-claude-readonly.sh" "$ROOT/test.sh"; do
     if bash -n "$script"; then
         printf 'ok: bash syntax %s\n' "${script#"$ROOT/"}"
     else
@@ -40,6 +40,18 @@ else
 fi
 
 if bash "$ROOT/tests/test-blocking-severity.sh"; then
+    :
+else
+    FAIL=1
+fi
+
+if bash "$ROOT/tests/test-archive-thread.sh"; then
+    :
+else
+    FAIL=1
+fi
+
+if bash "$ROOT/tests/test-claude-readonly.sh"; then
     :
 else
     FAIL=1

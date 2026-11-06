@@ -14,7 +14,11 @@ Works as a skill for **Claude Code**, **Codex** and **dsh**.
 2. Each pass bundles the diff vs baseline (tracked + untracked, lockfiles and
    binaries excluded, size-capped), the captured intent and the prior ledger.
 3. `codex exec` reviews it with a JSON output schema; malformed or
-   self-contradicting reports are rejected and retried once.
+   self-contradicting reports are rejected and retried once. The review thread
+   is a normal, persisted Codex session — never `--ephemeral`, so tools that
+   account token usage from `~/.codex` see what reviews cost — and it is
+   archived (`codex archive`) as soon as the attempt ends, so it stays out of
+   the thread list.
    A review requires a substantive summary even with no findings. Null, blank,
    punctuation-only, one-word status and common placeholder summaries are
    rejected. This is a
@@ -130,8 +134,36 @@ NEXT: fix findings blocking at the major threshold ..., then re-run this exact c
   diff, intent and raw reviewer output). Entries older than 7 days are pruned.
   Never edit state by hand.
 
+## Reviewer backends
+
+The default reviewer is GPT-6.1 Sol through `codex exec` (`STAGED_REVIEW_SOL_MODEL`, `STAGED_REVIEW_SOL_REASONING`).
+Set `STAGED_REVIEW_REVIEWER=claude` to run an Anthropic model through `claude -p` instead — same prompt bundle,
+same output schema (enforced with `--json-schema`), same receipt file and ledger. In place of codex's sandbox the
+session gets only read-only built-in tools: `--tools Read,Grep,Glob` is its entire tool set (no Bash — an
+allow-list pattern only auto-approves, and even `rg`/`find`/`git` patterns can write or run commands), and
+`--strict-mcp-config` loads no MCP server, and no hook runs: `--restricted` skips user, project and local settings
+files (a reviewed repository's own `.claude/settings.json` hooks would otherwise run with your permissions) and
+`--settings '{"disableAllHooks":true}'` covers the rest. `STAGED_REVIEW_CLAUDE_TOOLS` may narrow the tool set (`""`
+= none) but anything beyond Read, Grep and Glob is refused. Knobs: `STAGED_REVIEW_CLAUDE_MODEL` (default `claude-opus-5-5`),
+`STAGED_REVIEW_CLAUDE_EFFORT` (default `xhigh`), `STAGED_REVIEW_CLAUDE_MAX_TURNS` (default 400). The default backend
+and models are unchanged.
+
+    STAGED_REVIEW_REVIEWER=claude bash ~/.agents/scripts/staged-review/staged-review.sh --harness=claude
+
+## Review threads
+
+Each codex attempt's thread is persisted under `~/.codex/sessions` like any
+session, then archived to `~/.codex/archived_sessions` once the attempt ends,
+whatever its outcome (the session id is kept in `runs/NNN-sol/codex-session.attemptN`).
+`STAGED_REVIEW_ARCHIVE_THREADS=0` leaves threads in the list. Archiving is
+housekeeping: a CLI without `codex archive`, or any archive failure, is noted
+and never changes the review's result.
+
 ## Privacy
 
-The diff bundle and captured intent are sent to OpenAI through `codex`. The
+The diff bundle and captured intent are sent to OpenAI through `codex` (or to
+Anthropic through `claude` with `STAGED_REVIEW_REVIEWER=claude`), and the review
+thread — prompt bundle included — is kept in the local Codex session history
+like any other session. The
 reviewer runs with a read-only sandbox; repositories under a temp directory are
 refused because that sandbox can write there.
