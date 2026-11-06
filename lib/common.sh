@@ -16,6 +16,20 @@ load_env
 : "${STAGED_REVIEW_SOL_MODEL:=gpt-6.1-sol}"
 : "${STAGED_REVIEW_SOL_REASONING:=high}"
 : "${STAGED_REVIEW_CODEX_BIN:=codex}"
+# Archive each codex review thread once its attempt ends (1) or leave it in the thread list (0). The thread is
+# persisted either way; never --ephemeral, which would hide the review's token usage from usage accounting.
+: "${STAGED_REVIEW_ARCHIVE_THREADS:=1}"
+: "${STAGED_REVIEW_ARCHIVE_TIMEOUT:=60}"   # whole seconds (1..3600) for `codex archive`
+# Reviewer backend. "codex" (default) keeps GPT via `codex exec`; "claude" runs an Anthropic model via `claude -p`
+# with the same prompt bundle, the same output schema and a read-only tool allow-list. Nothing below changes the default.
+: "${STAGED_REVIEW_REVIEWER:=codex}"
+: "${STAGED_REVIEW_CLAUDE_BIN:=claude}"
+: "${STAGED_REVIEW_CLAUDE_MODEL:=claude-opus-5-5}"
+: "${STAGED_REVIEW_CLAUDE_EFFORT:=xhigh}"          # low|medium|high|xhigh|max
+: "${STAGED_REVIEW_CLAUDE_MAX_TURNS:=400}"
+: "${STAGED_REVIEW_CLAUDE_TOOLS=Read,Grep,Glob}"    # the session's ENTIRE built-in tool set (Read/Grep/Glob only; "" = none)
+: "${STAGED_REVIEW_CLAUDE_ALLOWED_TOOLS:=Read,Grep,Glob}"
+: "${STAGED_REVIEW_CLAUDE_DISALLOWED_TOOLS:=Bash,Edit,Write,MultiEdit,NotebookEdit,Agent,Task,WebFetch,WebSearch}"
 : "${STAGED_REVIEW_BLOCKING_SEVERITY:=major}" # major = critical+major; critical = critical only
 : "${STAGED_REVIEW_PYTHON_BIN:=python3}"
 : "${STAGED_REVIEW_TIMEOUT_RUNNER:=${SR_HOME}/run-with-timeout.py}"
